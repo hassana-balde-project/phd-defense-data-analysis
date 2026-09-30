@@ -1,0 +1,320 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+```
+
+#Loading of PhD dataset
+```{r}
+PHD.data <- read.csv("data/PhD.dataset.csv", sep=",")
+head(PHD.data)
+
+#We remove index because it's useless and may cause some problem lately
+
+PHD.data <-PHD.data[,-1]
+```
+
+#Replace the missing cells into NA
+```{r}
+head(PHD.data)
+PHD.data[PHD.data == ""] <-NA
+```
+
+
+#Illustrate the percentage of missing data in a graphe
+
+```{r}
+#la library visdat ne fonctionnant pas, on utilise naniar
+library(naniar)
+vis_miss(PHD.data, warn_large_data = FALSE)
+
+```
+
+
+
+```{r}
+PHD_clean <- PHD.data[sapply(PHD.data, function(x) sd(as.numeric(is.na(x)), na.rm= TRUE)) >0]
+
+PHD_numeric <- as.data.frame(lapply(PHD_clean, function(x) as.numeric(is.na(x))))
+
+# On utilise une matrice afin que la fonction ggcorplot fonctionne,
+corr_matrix <- cor(PHD_numeric, use = "complete.obs")
+corr_matrix[lower.tri(corr_matrix)] <- NA
+#View(corr_matrix)
+
+# Finalement utilisation de heatmap car erreur avec ggcorplot             
+heatmap(corr_matrix, 
+        col = colorRampPalette(c("green", "grey", "blue"))(50), # Définir une palette de couleur
+        scale = "none",  # Ne pas normaliser les données
+        Rowv = NA,
+        Colv=NA,
+        margins = c(5,5),
+        ) 
+
+```
+
+```{r}
+#install.packages("lubridate")
+library(lubridate)
+```
+#Faire un grahique 
+
+```{r}
+#On commence par introduire la library lubridate afin de pouvoir manipuler les dates 
+PHD.data$Date.de.soutenance <- as.Date(PHD.data$Date.de.soutenance, format= "%d-%m-%y")
+
+#Ne pas prendre en considération les valeurs manquantes
+
+PHD.data$Mois.de.soutenance <- ifelse(is.na(PHD.data$Date.de.soutenance), 0, month(PHD.data$Date.de.soutenance, label= TRUE))
+
+PHD.data <- PHD.data %>% 
+  filter(Mois.de.soutenance != 0)
+
+#Création d'un nouveau tableau ne contenant que les mois et les opérations dessus
+soutenance_par_mois <- PHD.data %>% 
+  group_by(Mois.de.soutenance) %>%
+  summarise(nombre_soutenance= n()) %>%
+  ungroup() %>% 
+  mutate(nombre_soutenance= 100 * nombre_soutenance/ sum(nombre_soutenance))
+head(soutenance_par_mois)
+
+```
+
+```{r}
+#Creation d'un graphique
+ggplot(soutenance_par_mois, aes(x=Mois.de.soutenance, y=nombre_soutenance)) +
+  geom_bar(stat="identity")+
+  labs(title="Proportion de soutenances selon le mois", x="Mois", y="Pourcentage de soutenance")+
+  scale_x_continuous(breaks = 1:12 ,labels = c("Janvier", "Février", "Mars", "Avril", "Mai", "Juin", 
+                                             "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"))+
+   theme(axis.text.x=element_text(angle=45, hjust=1), axis.text.y = element_text(angle=30, hjust=1))
+  
+                                  
+  #scale_x_continuous(breaks = seq(min(soutenance_par_mois$Mois.de.soutenance)))
+#max(soutenance_par_mois$Mois.de.soutenance, by=1)
+  
+```
+#Graphe  showing the propotance of PhD defense for every year between 2005 and 2018
+```{r}
+#Tranformer Mois de soutenance en un factor 
+PHD.data$Mois.de.soutenance <- factor(PHD.data$Mois.de.soutenance)
+
+sout_mois_filtre <- PHD.data %>% 
+  group_by(Mois.de.soutenance, Year) %>%
+  summarise(nombre_sout= n()) %>%
+  ungroup() %>% mutate(nombre_sout= 100 * nombre_sout/ sum(nombre_sout)) %>%
+  filter(Year >=2005 & Year <=2018)
+head(sout_mois_filtre)
+``` 
+
+```{r}
+ggplot(sout_mois_filtre, aes(x= Mois.de.soutenance, y=nombre_sout)) +
+  geom_bar(stat="identity", fill= "blue", size=2)+
+  labs(title= "Pourcentage de soutenance par mois de 2005 à 2018", x= "Mois de soutenance", y= "Proportion de soutenance")+
+  scale_x_discrete()+ 
+  facet_wrap(vars(Year), scales= "free_y")+
+  theme(axis.text.x= element_text(angle=90, hjust=0.75))
+```
+
+```{r}
+PHD.data$Annee <- year(PHD.data$Date.de.soutenance)
+PHD.data$Jour_et_mois <- format(PHD.data$Date.de.soutenance, "%d-%m")
+
+# Filtrer les soutenances faites le 1er janvier
+PHD_1er_janvier <- PHD.data %>%
+  filter(Jour_et_mois == "01-01") %>%
+  group_by(Annee) %>%
+  summarise(nombre_soutenances_1er_janvier = n())
+
+# Calculer le nombre total de soutenances par année
+total_soutenances <- PHD.data %>%
+  group_by(Annee) %>%
+  summarise(nombre_soutenances_total = n())
+
+proportion_soutenances_1er_janvier <- PHD_1er_janvier %>%
+  right_join(total_soutenances, by = "Annee") %>%
+  mutate(nombre_soutenances_1er_janvier = ifelse(is.na(nombre_soutenances_1er_janvier), 0, nombre_soutenances_1er_janvier),
+         proportion = (nombre_soutenances_1er_janvier / nombre_soutenances_total) * 100)
+head(proportion_soutenances_1er_janvier)
+```
+
+
+```{r}
+ggplot(proportion_soutenances_1er_janvier, aes(x= Annee, y= proportion)) +
+  geom_line( stat="identity", color="blue")+
+  labs(title = "Pourcentage de soutenance au 1er Janvier", x= "Année", y="Pourcentage (%)")+
+   scale_y_continuous(labels= scales :: percent_format(scale = 1)) +  # Formater l'axe Y en pourcentage
+  theme_minimal()
+```
+#Recherche des personnes qui ont le nom Cécile Martin
+```{r}
+grep(pattern = "Cecile Martin", x= PHD.data$Auteur)
+PHD.data[grep("Cecile Martin", PHD.data$Auteur),]
+#Indique les lignes où le pattern est trouver
+
+```
+```{r}
+#install.packages(("stringr"))
+library(stringr)
+```
+
+```{r}
+PHD.data <- PHD.data %>%
+  mutate(
+    # Remplacer les tirets par un caractère temporaire pour préserver la casse après `str_to_title`
+    Directeur.de.these = str_replace_all(Directeur.de.these, "-", " TEMP_HYPHEN "),
+    # Mettre la première lettre en majuscule et les autres en minuscule, conserver les accents
+    Directeur.de.these = str_to_title(Directeur.de.these, locale = "fr"),
+    # Remettre les tirets et enlever les caractères non alphanumériques (sauf tirets et accents)
+    Directeur.de.these = str_replace_all(Directeur.de.these, " TEMP_HYPHEN ", "-"),
+    Directeur.de.these = str_replace_all(Directeur.de.these, "[^\\p{L}\\p{M}\\s'-]", "")
+  )
+#PHD.data <- PHD.data %>%
+ # mutate(Directeur.de.these..nom.prenom. = str_replace_all(Directeur.de.these..nom.prenom., "-", " TEMP_HYPHEN "),
+  #       Directeur.de.these..nom.prenom. = str_to_title(Directeur.de.these..nom.prenom., locale = "fr"),
+   #      Directeur.de.these..nom.prenom. = str_replace_all(Directeur.de.these..nom.prenom., " TEMP_HYPHEN ", "-"),
+    #Directeur.de.these..nom.prenom. = str_replace_all(Directeur.de.these..nom.prenom., "[^\\p{L}\\p{M}\\s'-]", "")
+head(PHD.data)
+```
+
+
+```{r}
+PHD.data <- PHD.data %>%
+  mutate(Prenom = word(Directeur.de.these, 1))
+```
+
+```{r}
+head(PHD.data)
+library(gender)
+PHD.data <- PHD.data %>%
+  rowwise() %>%
+  mutate(
+    genre_temp = list(gender(Prenom, method = "ssa")$gender),  # Extraire le genre temporairement
+    Genre = ifelse(length(genre_temp) == 0 || is.na(genre_temp), "Inconnu", genre_temp)  # Vérifier si le genre est déterminé
+  ) %>%
+  ungroup() %>%
+  select(-genre_temp)
+```
+
+```{r}
+#install.packages("gender")
+library(gender)
+PHD.data <- PHD.data %>%
+  rowwise() %>%
+  mutate(Genre = ifelse(is.na(gender(Prenom, method = "ssa")$gender), "Inconnu",
+                gender(Prenom, method = "ssa")$gender)) %>%
+  ungroup()
+
+directeurs_femmes <- PHD.data %>%
+  filter(Genre == "female")
+
+# Filtrer les directeurs dont le genre est masculin
+directeurs_hommes <- PHD.data %>%
+  filter(Genre == "male")
+```
+
+```{r}
+directeur2 <- PHD.data %>%
+  group_by(Directeur.de.these)%>%
+  summarise(nb_these= n())%>%
+  arrange(desc(nb_these))
+head(directeur2)
+View(directeur2)
+```
+
+
+```{r}
+
+directeur <- PHD.data %>%
+  filter(Year >=1984 & Year <=2014) %>%
+  group_by(Directeur.de.these, Year)%>%
+  summarise(nbre_these= n())%>%
+  arrange(desc(nbre_these))
+
+head(directeur)
+View(directeur)
+
+```
+
+```{r}
+library(gender)
+directeur <- directeur %>%
+  mutate(Prenom = word(Directeur.de.these, 1))
+
+directeur <- directeur %>%
+ mutate(
+    Genre = list(gender(Prenom, method = "ssa")$gender)
+  ) %>%
+  mutate(
+    Genre = ifelse(length(Genre) == 0, "Inconnu", Genre[[1]])  # Gérer les valeurs manquantes
+  ) %>%
+  ungroup()
+```
+
+```{r}
+directrices_femmes <- directeur %>%
+  filter(Genre == "female")
+
+# Filtrer les directeurs dont le genre est masculin
+directeurs_hommes <- directeur %>%
+  filter(Genre == "male")
+```
+
+```{r}
+prenoms_uniques <- unique(directeur$Prenom)
+
+genre_prenoms <- data.frame(Prenom = prenoms_uniques) %>%
+  rowwise() %>%
+  mutate(
+    Genre = list(gender(Prenom, method = "ssa")$gender)
+  ) %>%
+  mutate(
+    Genre = ifelse(length(Genre) == 0, "Inconnu", Genre[[1]])
+  ) %>%
+  ungroup()
+```
+
+```{r}
+directeur <- directeur %>%
+  left_join(genre_prenoms, by = "Prenom")
+```
+
+```{r}
+valeurs_uniques <- unique(PHD.data$Langue.de.la.these)
+print(valeurs_uniques)
+```
+
+```{r}
+library(dplyr)
+PHD.data<- PHD.data %>%
+  mutate(Langue.de.la.these = na_if(Langue.de.la.these, "na")) %>%
+  mutate(language.rec= recode(Langue.de.la.these, "fr"= "Français",
+                                    "en" ="Anglais", 
+                                    "fren" = "Bilingue" ,
+                                    "enfr" = "Bilingue", 
+                                    .default= "Autre" , 
+                                    .missing= NA_character_))
+head(PHD.data)
+```
+
+```{r}
+phd_langue <- PHD.data %>%
+  filter(Year >= 1984 & Year <= 2020) %>%
+  group_by(language.rec, Year) %>%
+  filter(!is.na(language.rec)) %>%
+  summarise(langue_soutenance= n())
+head(phd_langue)
+View(phd_langue)
+```
+
+```{r}
+ggplot(phd_langue, aes(x= Year, y= langue_soutenance, color= language.rec)) +
+  geom_line(stat= "identity", size= 1)+
+  labs(title="Evolution de l'utilisation des langues lors des soutenances de 1984 à 2020", x="Années", y="Nombres de theses soutenues dans la langue")+
+   theme(axis.text.x=element_text(angle=45, hjust=1), axis.text.y = element_text(angle=30, hjust=1))
+```
+
